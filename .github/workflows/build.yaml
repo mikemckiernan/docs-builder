@@ -59,7 +59,7 @@ jobs:
           images: |
             ${{ github.repository_owner }}/${{ github.repository }}
           tags: |
-            type=semver
+            type=semver,pattern={{version}}
       - name: Build image
         uses: docker/build-push-action@v6
         with:
