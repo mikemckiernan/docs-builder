@@ -3,11 +3,13 @@
 
 FROM hashicorp/vault:2.0.1 AS v
 FROM mikefarah/yq:4.53.2 AS y
-FROM python:3.13
+
+# ---------------------------------------------------------------------------
+# base: shared system layers (root, no user-scoped installs yet)
+# ---------------------------------------------------------------------------
+FROM python:3.13 AS base
 
 ARG UID=1000
-ARG FERN_API_VERSION=5.44.4
-ARG NODE_VERSION=22.12.0
 ARG GH_VERSION=2.93.0
 
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
@@ -35,9 +37,9 @@ RUN yq --version
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     tarball="gh_${GH_VERSION}_linux_${arch}.tar.gz"; \
-    base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"; \
-    curl -fsSL "${base}/${tarball}" -o "/tmp/${tarball}"; \
-    curl -fsSL "${base}/gh_${GH_VERSION}_checksums.txt" -o /tmp/gh_checksums.txt; \
+    rel="https://github.com/cli/cli/releases/download/v${GH_VERSION}"; \
+    curl -fsSL "${rel}/${tarball}" -o "/tmp/${tarball}"; \
+    curl -fsSL "${rel}/gh_${GH_VERSION}_checksums.txt" -o /tmp/gh_checksums.txt; \
     (cd /tmp && grep " ${tarball}$" gh_checksums.txt | sha256sum -c -); \
     tar -xzf "/tmp/${tarball}" -C /tmp; \
     mv "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/bin/gh; \
@@ -46,8 +48,18 @@ RUN set -eux; \
 
 ENV HOME=/home/nvidia
 RUN useradd -u "${UID}" -ms /bin/bash nvidia && chmod 777 "${HOME}"
-USER nvidia
 ENV PATH="/home/nvidia/.venv/bin:/home/nvidia/.local/node/bin:/home/nvidia/.local/bin:${PATH}"
+
+# ---------------------------------------------------------------------------
+# interactive: end-user image; runs as the unprivileged nvidia user.
+# This is the default target.
+# ---------------------------------------------------------------------------
+FROM base AS interactive
+
+ARG FERN_API_VERSION=5.44.4
+ARG NODE_VERSION=22.12.0
+
+USER nvidia
 
 RUN uv venv /home/nvidia/.venv
 RUN --mount=type=bind,source=.,destination=/x,rw uv pip install --python /home/nvidia/.venv/bin/python --requirement /x/requirements.txt
@@ -78,3 +90,14 @@ RUN --mount=type=bind,source=docs/fern,destination=/x/fern,rw set -eux; \
     test -f /home/nvidia/.fern/app-preview/etag; \
     echo "Primed Fern docs preview bundle:"; \
     ls -la /home/nvidia/.fern/app-preview/
+
+# ---------------------------------------------------------------------------
+# ci: same toolchain as `interactive`, but runs as root so GitHub Actions
+# container jobs can write the workspace mount (/__w) without --user
+# overrides. HOME is pinned to /home/nvidia so the Fern bundle cache and
+# venv that were primed in `interactive` are still found.
+# ---------------------------------------------------------------------------
+FROM interactive AS ci
+
+USER root
+ENV HOME=/home/nvidia

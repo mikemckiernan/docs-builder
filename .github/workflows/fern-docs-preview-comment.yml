@@ -26,13 +26,16 @@ jobs:
       - name: Derive container image reference
         id: tag
         env:
-          # HEAD_SHA is the PR merge commit SHA, matching docker/metadata-action's type=sha tag in build.yaml.
+          # HEAD_SHA is the PR head SHA, which matches build.yaml's image tag because that
+          # workflow sets DOCKER_METADATA_PR_HEAD_SHA=true on docker/metadata-action.
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           REPO: ${{ github.repository }}
         run: |
           SHORT="${HEAD_SHA:0:7}"
           REPO_LOWER=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
-          IMAGE="ghcr.io/${REPO_LOWER}:sha-${SHORT}"
+          # The -ci variant runs as root so GitHub Actions container jobs can
+          # write the /__w workspace mount.
+          IMAGE="ghcr.io/${REPO_LOWER}-ci:sha-${SHORT}"
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
           echo "Container image: ${IMAGE}"
 
